@@ -1,0 +1,29 @@
+[package]
+authors = ["HUIONE Maintainers <maintainers@huione.com>"]
+description = "HPL-Token Command-line Utility"
+edition = "2018"
+homepage = "https://spl.huione.com/token"
+license = "Apache-2.0"
+name = "hpl-token-cli"
+repository = "https://github.com/huione-labs/huione-program-library"
+version = "1.0.0"
+
+[dependencies]
+clap = "2.33.3"
+console = "0.14.0"
+serde_json = { version = "1.0.79", features = ["arbitrary_precision"] }
+huione-account-decoder =  { path = "../../../huione/account-decoder", version = "1.1.0" } 
+huione-clap-utils =  { path = "../../../huione/clap-utils", version = "1.1.0" } 
+huione-cli-config =  { path = "../../../huione/cli-config", version = "1.1.0" } 
+huione-cli-output =  { path = "../../../huione/cli-output", version = "1.1.0" } 
+huione-client =  { path = "../../../huione/client", version = "1.1.0" } 
+huione-logger =  { path = "../../../huione/logger", version = "1.1.0" } 
+huione-remote-wallet =  { path = "../../../huione/remote-wallet", version = "1.1.0" } 
+huione-sdk = { path = "../../../huione/sdk", version = "1.1.0" } 
+hpl-token = { version = "1.0.0", path="../program", features = [ "no-entrypoint" ] }
+hpl-associated-token-account = { version = "1.0", path="../../associated-token-account/program", features = [ "no-entrypoint" ] }
+hpl-memo = { version = "1.0.0", path="../../memo/program", features = ["no-entrypoint"] }
+
+[[bin]]
+name = "hpl-token"
+path = "src/main.rs"

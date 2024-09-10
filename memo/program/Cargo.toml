@@ -1,0 +1,25 @@
+[package]
+name = "hpl-memo"
+version = "1.0.0"
+description = "HUIONE Program Library Memo"
+authors = ["HUIONE Maintainers <maintainers@huione.com>"]
+repository = "https://github.com/huione-labs/huione-program-library"
+license = "Apache-2.0"
+edition = "2018"
+
+[features]
+no-entrypoint = []
+test-bpf = []
+
+[dependencies]
+huione-program =  { path = "../../../huione/sdk/program", version = "1.1.0" }
+
+[dev-dependencies]
+# huione-program-test = { path = "../../../huione/program-test", version = "1.1.0" }
+huione-sdk = { path = "../../../huione/sdk", version = "1.1.0" }
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
