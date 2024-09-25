@@ -21,11 +21,11 @@ export const cluster = chooseCluster();
 
 export const url =
   process.env.RPC_URL ||
-  (process.env.LIVE ? clusterApiUrl(cluster, false) : 'https://pubchain-rpc.xone.la');
+  (process.env.LIVE ? clusterApiUrl(cluster, false) : 'https://rpc.huione.org');
 
 export const urlTls =
   process.env.RPC_URL ||
-  (process.env.LIVE ? clusterApiUrl(cluster, true) : 'https://pubchain-rpc.xone.la');
+  (process.env.LIVE ? clusterApiUrl(cluster, true) : 'https://rpc.huione.org');
 
 export let walletUrl =
-  process.env.WALLET_URL || 'https://pubchain-rpc.xone.la';
+  process.env.WALLET_URL || 'https://rpc.huione.org';

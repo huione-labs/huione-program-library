@@ -1,1 +1,0 @@
-huione_program::declare_id!("CtTn4qKG2mfaPUx4sbjAVdzPbDN7PXbv4SpAJbnxpHJh");

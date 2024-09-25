@@ -1,4 +1,4 @@
-import { PublicKey, clusterApiUrl } from '@put/web3.js';
+import { PublicKey, clusterApiUrl } from '@xoneorg/web3.js';
 
 export const SYSTEM_PROGRAM_ID = new PublicKey(
   '11111111111111111111111111111111',
@@ -19,7 +19,7 @@ type Cluster = {
 export const CLUSTERS: Cluster[] = [
   {
     name: 'mainnet-beta',
-    url: 'https://pubchain-rpc.xone.la/',
+    url: 'https://rpc.huione.org/',
   },
   {
     name: 'testnet',

@@ -17,7 +17,6 @@ test-bpf = []
 
 [dependencies]
 huione-program =  { path = "../../../huione/sdk/program", version = "1.1.0" }
-hpl-sig =  { path = "../../multi-sig/program", version = "=1.0.0" , features = [ "no-entrypoint" ]}
 num-traits = "0.2"
 borsh = "0.10.3"
 num-derive = "0.3.3"

@@ -335,6 +335,7 @@ impl Processor {
 
                         // check authority.
                         if !Self::cmp_pubkeys(&mint.mint_authority, &owner_account.key) {
+                            msg!("{:?} - {:?}",mint.mint_authority,owner_account.key);
                             return Err(TokenError::OwnerMismatch.into());
                         }
 
@@ -477,6 +478,11 @@ impl Processor {
                             msg!("--------- old_owner_account {}", old_owner_account.key.to_string());
                             return Err(TokenError::AuthorityMismatched.into())
                         }
+                        
+                        if new_authority.is_none(){
+                            msg!("new mint_authority cann't be None.");
+                            return Err(TokenError::NoProvided.into())
+                        }
 
                         if Self::cmp_pubkeys(&mint.mint_authority, &new_authority.unwrap()) {
                             return Err(TokenError::SameAuthority.into())
@@ -585,6 +591,9 @@ impl PrintProgramError for TokenError {
             }
             TokenError::ThawUnfrozen => {
                 msg!("Error: thaw a unfrozen nft")
+            }
+            TokenError::NoProvided => {
+                msg!("Error: No required parameters provided")
             }
             #[warn(unreachable_patterns)]
             _ => {unreachable!()}

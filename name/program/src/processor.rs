@@ -7,16 +7,14 @@ use huione_program::{clock, msg, system_instruction, system_program};
 use huione_program::program_error::ProgramError;
 use huione_program::pubkey::{Pubkey, PUBKEY_BYTES};
 use crate::instruction::{is_valid_domain, NameInstruction};
-use crate::state::{AccountState, AccountType, AddressResolveAccount, DomainAccount, DomainResolveAccount, EXPIRE_PERIOD, get_seeds_and_key, GRACE_PERIOD, GRACE_PERIOD_FEE, PriceAccount, PROPOSAL_EFFECT_PERIOD, TopDomainAccount};
+use crate::state::{AccountState, AccountType, AddressResolveAccount, DomainAccount, DomainResolveAccount, EXPIRE_PERIOD, get_seeds_and_key, GRACE_PERIOD, GRACE_PERIOD_FEE, PriceAccount, TopDomainAccount};
 use borsh::{BorshDeserialize, BorshSerialize};
 use huione_program::program::{invoke, invoke_signed};
 use huione_program::program_memory::{huione_memcmp, huione_memset};
 use huione_program::rent::Rent;
 use huione_program::sysvar::Sysvar;
-use hpl_sig::instruction::{create_proposal_account, verify};
-use hpl_sig::state::{ProposalAccount};
 use crate::error::NameError;
-use crate::{multi_sig_account_inline, oracle_program, usdt_token_account};
+use crate::{domain_manager_account};
 
 /// 1 hc to lamports
 const HC_BASE: f64 = 1000000000_f64;
@@ -30,9 +28,7 @@ impl Processor {
     fn _create_top_domain(program_id: &Pubkey, accounts_iter: &mut Iter<AccountInfo>, domain_name: String, rule: [u128; 5], max_space: u16) -> ProgramResult{
         let top_domain_account = next_account_info(accounts_iter)?;
         let payer_account = next_account_info(accounts_iter)?;
-        let multi_sig_account = next_account_info(accounts_iter)?;
-        let proposal_account = next_account_info(accounts_iter)?;
-        let _multi_sig_program_account = next_account_info(accounts_iter)?;
+        let mgr_account = next_account_info(accounts_iter)?;
         let system_program_account = next_account_info(accounts_iter)?;
         let rent_account = next_account_info(accounts_iter)?;
 
@@ -40,6 +36,11 @@ impl Processor {
         if !is_valid_domain(&domain_name) {
             msg!("invalid domain name format");
             return Err(NameError::InvalidNameFormat.into())
+        }
+
+        if mgr_account.signer_key() != Some(&domain_manager_account::id()) {
+            msg!("Insufficient permissions for operation");
+            return Err(NameError::InsufficientPermissions.into())
         }
 
         // Domain account check.
@@ -55,64 +56,6 @@ impl Processor {
             msg!("domain account {} already exist", domain_name);
             return Err(ProgramError::AccountAlreadyInitialized)
         }
-
-        if !Self::pubkeys_equal(multi_sig_account.key, &multi_sig_account_inline::id()) {
-            msg!("invalid multi sig account.");
-            return Err(NameError::InvalidMultiSigAccount.into())
-        }
-        let proposal = format!("{} init a create top domain {} proposal", payer_account.key, domain_name);
-        // No need for check proposal account anymore, cause proposal account not reuse anymore, and
-        // multi sig program provide the proposal account correctly
-        // let (proposal_account_puk, _) = find_proposal_account(&multi_sig_account_inline::id(), 0);
-        //
-        // if !Self::pubkeys_equal(proposal_account.key, &proposal_account_puk) {
-        //     msg!("invalid proposal account");
-        //     return Err(NameError::InvalidProposalAccount.into())
-        // }
-
-        let proposal_data_obj: ProposalAccount = ProposalAccount::deserialize(&mut &**proposal_account.data.borrow_mut()).unwrap_or_default();
-
-        if proposal_data_obj.account_state == hpl_sig::state::AccountState::Uninitialized {
-            msg!("start init proposal account");
-            // create proposal
-            invoke(
-                &create_proposal_account(
-                &hpl_sig::id(),
-                proposal,
-                PROPOSAL_EFFECT_PERIOD,
-                &multi_sig_account.key,
-                &payer_account.key,
-                &proposal_account.key,
-
-                )?,
-                &[
-                    multi_sig_account.clone(),
-                    payer_account.clone(),
-                    proposal_account.clone(),
-                    system_program_account.clone(),
-                    rent_account.clone(),
-                    // multi_sig_program_account.clone()
-                ]
-            )?;
-            return Ok(())
-        }
-
-        msg!("start verify proposal can execute");
-        // verify proposal
-        invoke(
-           &verify(
-            &hpl_sig::id(),
-            &multi_sig_account.key,
-            &payer_account.key,
-            &proposal_account.key,
-            Some(proposal)
-           )?,
-           &[
-               multi_sig_account.clone(),
-               payer_account.clone(),
-               proposal_account.clone(),
-           ],
-        )?;
 
         // init top domain data
         top_domain_data_obj.account_type = AccountType::TopDomain;
@@ -144,7 +87,6 @@ impl Processor {
         let owner_account = next_account_info(accounts_iter)?;
         let parent_account = next_account_info(accounts_iter)?;
         let payer_account = next_account_info(accounts_iter)?;
-        let oracle_account = next_account_info(accounts_iter)?;
         let system_program_account = next_account_info(accounts_iter)?;
         let rent_account = next_account_info(accounts_iter)?;
 
@@ -179,45 +121,36 @@ impl Processor {
             return Err(ProgramError::AccountAlreadyInitialized)
         }
 
-        let top_account_data = parent_account.data.borrow();
-        let top_domain_data_obj: TopDomainAccount = TopDomainAccount::deserialize (&mut &**top_account_data).unwrap();
-
-        if top_domain_data_obj.account_state != AccountState::Initialized {
-            msg!("invalid top domain");
-            return Err(ProgramError::InvalidArgument)
-        }
-
-        // ask oracle for huione -> usdt price
-        let oracle_seeds = &["price".as_bytes(), &system_program::id().to_bytes(), &usdt_token_account::id().to_bytes()];
-        let (oracle_account_puk, _) = Pubkey::find_program_address(oracle_seeds, &oracle_program::id());
-
-        if *oracle_account.key != oracle_account_puk {
-            msg!("invalid oracle account.");
-            return Err(ProgramError::InvalidArgument)
-        }
-        let oracle_account_data_ref = &**oracle_account.data.borrow();
-        let mut oracle_account_data = &oracle_account_data_ref[8..];
-        let oracle_data_obj : PriceAccount = PriceAccount::deserialize (&mut oracle_account_data).unwrap();
-        let usdt_to_huione_price = Self::token_to_hc(oracle_data_obj.price as u128);
         // compute fee
-        let fee: u128;
-        let fee_index: u32;
-        match valid_domain_name.len() {
-            4 => {
-                fee_index = 1;
-                fee = top_domain_data_obj.rule[1] * usdt_to_huione_price
-            },
-            5 => {
-                fee_index = 2;
-                fee = top_domain_data_obj.rule[2] * usdt_to_huione_price
-            },
-            6 => {
-                fee_index = 3;
-                fee = top_domain_data_obj.rule[3] * usdt_to_huione_price
-            },
-            _ => {
-                fee_index = 4;
-                fee = top_domain_data_obj.rule[4] * usdt_to_huione_price
+        let mut fee: u128;
+        let mut fee_index: u32;
+        let mut max_space:u16;
+        {
+            let top_account_data = parent_account.data.borrow();
+            let top_domain_data_obj: TopDomainAccount = TopDomainAccount::deserialize (&mut &**top_account_data).unwrap_or_default();
+            max_space = top_domain_data_obj.max_space;
+            if top_domain_data_obj.account_state != AccountState::Initialized {
+                msg!("invalid top domain");
+                return Err(NameError::AccountNotExist.into())
+            }
+    
+            match valid_domain_name.len() {
+                4 => {
+                    fee_index = 1;
+                    fee = top_domain_data_obj.rule[1]
+                },
+                5 => {
+                    fee_index = 2;
+                    fee = top_domain_data_obj.rule[2]
+                },
+                6 => {
+                    fee_index = 3;
+                    fee = top_domain_data_obj.rule[3]
+                },
+                _ => {
+                    fee_index = 4;
+                    fee = top_domain_data_obj.rule[4]
+                }
             }
         }
         msg!("fee {}", fee);
@@ -229,16 +162,14 @@ impl Processor {
                 system_program_account.clone(),
             ],
         )?;
-
         let old_state = domain_data_obj.account_state;
-
         //init domain data
         domain_data_obj.account_type = AccountType::Domain;
         domain_data_obj.account_state = AccountState::Initialized;
         domain_data_obj.parent_key = *parent_account.key;
         domain_data_obj.owner = *owner_account.key;
         domain_data_obj.expire_time = clock::Clock::get().unwrap().unix_timestamp + EXPIRE_PERIOD;
-        domain_data_obj.max_space = top_domain_data_obj.max_space;
+        domain_data_obj.max_space = max_space;
         domain_data_obj.fee_index = fee_index;
         domain_data_obj.domain_name = domain_name;
 
@@ -269,6 +200,7 @@ impl Processor {
                 ],
            )?;
         }
+        
         domain_data_obj.serialize(&mut *domain_account.data.borrow_mut())?;
 
         return Ok({})
@@ -280,9 +212,6 @@ impl Processor {
         let owner_account = next_account_info(accounts_iter)?;
         let parent_account = next_account_info(accounts_iter)?;
         let payer_account = next_account_info(accounts_iter)?;
-        let multi_sig_account = next_account_info(accounts_iter)?;
-        let proposal_account = next_account_info(accounts_iter)?;
-        let _multi_sig_program_account = next_account_info(accounts_iter)?;
         let system_program_account = next_account_info(accounts_iter)?;
         let rent_account = next_account_info(accounts_iter)?;
 
@@ -300,11 +229,6 @@ impl Processor {
         if valid_domain_name.len() > 3 {
             msg!("its not rare domain");
             return Err(NameError::InvalidNameFormat.into())
-        }
-
-        if !Self::pubkeys_equal(multi_sig_account.key, &multi_sig_account_inline::id()) {
-            msg!("invalid multi sig account.");
-            return Err(NameError::InvalidMultiSigAccount.into())
         }
 
         // Verify the validity of the domain name.
@@ -330,50 +254,8 @@ impl Processor {
             return Err(ProgramError::InvalidArgument)
         }
 
-        let proposal = format!("{} init a create rare domain {} proposal", payer_account.key, domain_name);
+        // let proposal = format!("{} init a create rare domain {} proposal", payer_account.key, domain_name);
 
-        let proposal_data_obj: ProposalAccount = ProposalAccount::deserialize(&mut &**proposal_account.data.borrow_mut()).unwrap_or_default();
-
-        if proposal_data_obj.account_state == hpl_sig::state::AccountState::Uninitialized {
-            msg!("start init proposal account");
-            // start to create proposal
-            invoke(
-                &create_proposal_account(
-                    &hpl_sig::id(),
-                    proposal,
-                    PROPOSAL_EFFECT_PERIOD,
-                    &multi_sig_account.key,
-                    &payer_account.key,
-                    &proposal_account.key,
-                )?,
-                &[
-                    multi_sig_account.clone(),
-                    payer_account.clone(),
-                    proposal_account.clone(),
-                    system_program_account.clone(),
-                    rent_account.clone(),
-                    // multi_sig_program_account.clone()
-                ]
-            )?;
-            return Ok(())
-        }
-
-        msg!("start verify proposal can execute");
-        // verify the proposal pass yet
-        invoke(
-            &verify(
-                &hpl_sig::id(),
-                &multi_sig_account.key,
-                &payer_account.key,
-                &proposal_account.key,
-                Some(proposal)
-            )?,
-            &[
-                multi_sig_account.clone(),
-                payer_account.clone(),
-                proposal_account.clone(),
-            ],
-        )?;
         let top_domain_account_data = parent_account.data.borrow();
         let top_domain_data_obj : TopDomainAccount = TopDomainAccount::deserialize (&mut &**top_domain_account_data).unwrap();
         let old_state = domain_data_obj.account_state;
@@ -778,7 +660,6 @@ impl Processor {
         // let owner_account = next_account_info(accounts_iter)?;
         let parent_account = next_account_info(accounts_iter)?;
         let payer_account = next_account_info(accounts_iter)?;
-        let oracle_account = next_account_info(accounts_iter)?;
         let system_program_account = next_account_info(accounts_iter)?;
 
         let mut domain_data_obj: DomainAccount = DomainAccount::deserialize (&mut &**domain_account.data.borrow_mut()).unwrap_or_default();
@@ -812,19 +693,8 @@ impl Processor {
             grace_period_fee = GRACE_PERIOD_FEE
         }
 
-        // ask oracle for usdt -> hc price
-        let oracle_seeds = &["price".as_bytes(), &system_program::id().to_bytes(), &usdt_token_account::id().to_bytes()];
-        let (oracle_account_puk, _) = Pubkey::find_program_address(oracle_seeds, &oracle_program::id());
-        if *oracle_account.key != oracle_account_puk {
-            msg!("invalid oracle account.");
-            return ProgramResult::Err(ProgramError::InvalidArgument)
-        }
-        let oracle_account_data_ref = &**oracle_account.data.borrow();
-        let mut oracle_account_data = &oracle_account_data_ref[8..];
-        let oracle_data_obj : PriceAccount = PriceAccount::deserialize (&mut oracle_account_data).unwrap();
-        let usdt_to_huione_price = Self::token_to_hc(oracle_data_obj.price as u128);
         // compute fee
-        let fee = (top_domain_data_obj.rule[domain_data_obj.fee_index as usize] + grace_period_fee) * usdt_to_huione_price as u128;
+        let fee = top_domain_data_obj.rule[domain_data_obj.fee_index as usize] + grace_period_fee ;
 
         if top_domain_data_obj.account_state != AccountState::Initialized {
             msg!("invalid top domain");
@@ -850,66 +720,14 @@ impl Processor {
     fn _set_top_receipt(accounts_iter: &mut Iter<AccountInfo>, receipt_puk : Pubkey) -> ProgramResult{
         let top_domain_account = next_account_info(accounts_iter)?;
         let payer_account = next_account_info(accounts_iter)?;
-        let multi_sig_account = next_account_info(accounts_iter)?;
-        let proposal_account = next_account_info(accounts_iter)?;
-        let _multi_sig_program_account = next_account_info(accounts_iter)?;
         let system_program_account = next_account_info(accounts_iter)?;
         let rent_account = next_account_info(accounts_iter)?;
-
-        if !Self::pubkeys_equal(multi_sig_account.key, &multi_sig_account_inline::id()) {
-            msg!("invalid multi sig account.");
-            return Err(NameError::InvalidMultiSigAccount.into())
-        }
 
         let top_domain_data_obj : TopDomainAccount = TopDomainAccount::deserialize (&mut &**top_domain_account.data.borrow_mut()).unwrap_or_default();
         if top_domain_data_obj.account_state != AccountState::Initialized {
             msg!("uninitialized account {}", top_domain_account.key);
             return Err(ProgramError::UninitializedAccount)
         }
-
-        let proposal = format!("{} init a set top domain account {} receipt account to {} proposal", payer_account.key, top_domain_account.key, receipt_puk);
-
-        let proposal_data_obj: ProposalAccount = ProposalAccount::deserialize(&mut &**proposal_account.data.borrow_mut()).unwrap_or_default();
-
-        if proposal_data_obj.account_state == hpl_sig::state::AccountState::Uninitialized {
-            msg!("start init proposal account");
-            // create proposal
-            invoke(
-                &create_proposal_account(
-                    &hpl_sig::id(),
-                    proposal,
-                    PROPOSAL_EFFECT_PERIOD,
-                    &multi_sig_account.key,
-                    &payer_account.key,
-                    &proposal_account.key,
-                )?,
-                &[
-                    multi_sig_account.clone(),
-                    payer_account.clone(),
-                    proposal_account.clone(),
-                    system_program_account.clone(),
-                    rent_account.clone(),
-                ]
-            )?;
-            return Ok(())
-        }
-
-        msg!("start verify proposal can execute");
-        // verify proposal
-        invoke(
-            &verify(
-                &hpl_sig::id(),
-                &multi_sig_account.key,
-                &payer_account.key,
-                &proposal_account.key,
-                Some(proposal)
-            )?,
-            &[
-                multi_sig_account.clone(),
-                payer_account.clone(),
-                proposal_account.clone(),
-            ],
-        )?;
 
         top_domain_data_obj.serialize(&mut *top_domain_account.data.borrow_mut())?;
 
@@ -1014,7 +832,7 @@ impl Processor {
             }
 
             NameInstruction::CreateRareDomain {domain_name} => {
-                msg!("start to process CreateDomain instruction");
+                msg!("start to process CreateRareDomain instruction");
                 Self::_create_rare_domain(program_id, &mut accounts_iter, domain_name)
             }
 

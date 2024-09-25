@@ -50,11 +50,7 @@ use config::Config;
 mod output;
 use output::*;
 use hpl_name::instruction::{close_domain_resolve_account, create_domain, create_domain_resolve_account, create_rare_domain, create_renewal, create_top_domain, create_transfer, get_domain, is_valid_domain, set_top_receipt, unbind_address_account, update_domain_resolve_account};
-use hpl_name::multi_sig_account_inline;
 use hpl_name::state::{AccountType, DomainResolveAccount, get_seeds_and_key, TopDomainAccount};
-use hpl_sig::state::MultiSigAccount;
-use hpl_sig::utils::find_proposal_account;
-
 
 pub const OWNER_ADDRESS_ARG: ArgConstant<'static> = ArgConstant {
     name: "owner",
@@ -260,7 +256,6 @@ fn command_account(config: &Config, domain_name: String, account_type: String) -
             println!("Account type: {:?}", top_domain_data_obj.account_type);
             println!("Account state: {:?}", top_domain_data_obj.account_state);
             println!("Fee rule: {:?}", top_domain_data_obj.rule);
-            println!("Multi sig account: {:?}", multi_sig_account_inline::id());
             println!("Top account: {}", top_domain_puk);
 
             Ok("".to_string())
@@ -345,16 +340,12 @@ fn command_set_top_receipt(
     let (top_domain_account,_) =
         get_seeds_and_key(&config.program_id,Some(hash.to_bytes().to_vec()), AccountType::TopDomain, None).unwrap();
 
-    let multi_sig_account = config.rpc_client.get_account(&multi_sig_account_inline::id()).unwrap();
-    let multi_sig_data_obj : MultiSigAccount = MultiSigAccount::deserialize(&mut multi_sig_account.data.as_slice()).unwrap();
-
     let instructions = vec![
         set_top_receipt(
             config.program_id,
             top_domain_account,
             receipt,
             payer_account,
-            multi_sig_data_obj.nonce + 1
         )?,
     ];
 
@@ -802,7 +793,6 @@ fn command_create_rare_domain(
     domain_name: String,
     payer: Pubkey,
     owner: Pubkey,
-    verify_proposal_account: Option<Pubkey>,
     bulk_signers: Vec<Box<dyn Signer>>,
 ) -> CommandResult {
     println_display(config, format!("creating a domain {}", domain_name.clone()));
@@ -822,25 +812,11 @@ fn command_create_rare_domain(
     let hash = hashv(&[domain_name.as_bytes()]);
     let (domain_account,_) = get_seeds_and_key(&config.program_id,Some(hash.to_bytes().to_vec()), AccountType::Domain, None).unwrap();
 
-
-    let proposal_account_puk : Pubkey;
-    if verify_proposal_account.is_none() {
-        let multi_sig_account = config.rpc_client.get_account(&multi_sig_account_inline::id()).unwrap();
-        let multi_sig_data_obj : MultiSigAccount = MultiSigAccount::deserialize(&mut multi_sig_account.data.as_slice()).unwrap();
-
-        let (find_proposal_account_puk, _) = find_proposal_account(&multi_sig_account_inline::id(), multi_sig_data_obj.nonce + 1);
-        proposal_account_puk = find_proposal_account_puk;
-        println!("creating hpl-sig proposal account {}", proposal_account_puk);
-    } else {
-        proposal_account_puk = verify_proposal_account.unwrap();
-    }
-
     println!("program_id {}", config.program_id.to_string());
     let instructions = vec![
         create_rare_domain(
             config.program_id,
             domain_name.clone(),
-            proposal_account_puk,
             domain_account,
             owner,
             parent_domain_account,
@@ -936,7 +912,7 @@ fn command_create_top_domain(
     rule: [u128; 5],
     max_space: u16,
     payer: Pubkey,
-    verify_proposal_account: Option<Pubkey>,
+    manager: Pubkey,
     bulk_signers: Vec<Box<dyn Signer>>,
 ) -> CommandResult {
     println_display(config, format!("creating a top domain {}", domain_name.clone()));
@@ -944,26 +920,16 @@ fn command_create_top_domain(
     let (domain_account,_) = get_seeds_and_key(&config.program_id,Some(hash.to_bytes().to_vec()), AccountType::TopDomain, None).unwrap();
 
     println!("program_id {}", config.program_id.to_string());
-    let proposal_account_puk : Pubkey;
-    if verify_proposal_account.is_none() {
-        let multi_sig_account = config.rpc_client.get_account(&multi_sig_account_inline::id()).unwrap();
-        let multi_sig_data_obj : MultiSigAccount = MultiSigAccount::deserialize(&mut multi_sig_account.data.as_slice()).unwrap();
 
-        let (find_proposal_account_puk, _) = find_proposal_account(&multi_sig_account_inline::id(), multi_sig_data_obj.nonce + 1);
-        proposal_account_puk = find_proposal_account_puk;
-        println!("creating hpl-sig proposal account {}", proposal_account_puk);
-    } else {
-        proposal_account_puk = verify_proposal_account.unwrap();
-    }
     let instructions = vec![
         create_top_domain(
             config.program_id,
             domain_name.clone(),
             rule,
             max_space,
-            proposal_account_puk,
             domain_account,
-            payer
+            payer,
+            manager,
         )?,
     ];
 
@@ -1062,6 +1028,13 @@ fn main() -> Result<(), Error> {
                 .hidden(true)
                 .help("Use unchecked instruction if appropriate. Supports transfer, burn, mint, and approve."),
         )
+        .arg(
+            Arg::with_name("debug")
+                .long("debug")
+                .takes_value(false)
+                .global(true)
+                .help("debug model"),
+        )
         .subcommand(
             SubCommand::with_name("create-top")
                 .about("Create top domain.")
@@ -1090,13 +1063,16 @@ fn main() -> Result<(), Error> {
                             "The domain solve account value data max space"),
                 )
                 .arg(
-                    Arg::with_name("proposal")
-                        .long("proposal")
+                    Arg::with_name("authority_keypair")
+                        .long("authority-keypair")
+                        .validator(is_valid_signer)
                         .takes_value(true)
-                        .required(false)
-                        .validator(is_valid_pubkey)
-                        .help("The created proposal account. \
-                         The existence of this parameter means that the verification operation will be performed"),
+                        .required(true)
+                        .help(
+                            "Specify the token keypair. \
+                             This may be a keypair file or the ASK keyword. \
+                             [default: randomly generated keypair]"
+                        ),
                 )
         )
         .subcommand(
@@ -1145,15 +1121,6 @@ fn main() -> Result<(), Error> {
                         .takes_value(true)
                         .validator(is_valid_signer)
                         .help("Specify the fee payer keypair."),
-                )
-                .arg(
-                    Arg::with_name("proposal")
-                        .long("proposal")
-                        .takes_value(true)
-                        .required(false)
-                        .validator(is_valid_pubkey)
-                        .help("The created proposal account. \
-                         The existence of this parameter means that the verification operation will be performed"),
                 )
                 .arg(
                     Arg::with_name("owner")
@@ -1469,6 +1436,7 @@ fn main() -> Result<(), Error> {
 
         let blockhash_query = BlockhashQuery::new_from_matches(matches);
         let sign_only = matches.is_present(SIGN_ONLY_ARG.name);
+        let debug = matches.is_present("debug");
         let dump_transaction_message = matches.is_present(DUMP_TRANSACTION_MESSAGE.name);
         let program_id = pubkey_of(matches, "program_id").unwrap();
 
@@ -1498,6 +1466,7 @@ fn main() -> Result<(), Error> {
             nonce_authority,
             blockhash_query,
             sign_only,
+            debug,
             dump_transaction_message,
             multisigner_pubkeys,
             program_id,
@@ -1511,28 +1480,20 @@ fn main() -> Result<(), Error> {
             let domain_name = value_t_or_exit!(arg_matches, "name", String);
             let rule_str = value_t_or_exit!(arg_matches, "rule", String);
             let max_space = value_t_or_exit!(arg_matches, "space", u16);
-            let proposal_str = value_t!(arg_matches, "proposal", String);
-
-            let mut verify_proposal_account = None;
-            if proposal_str.is_ok() {
-                let proposal_puk = Pubkey::from_str(&proposal_str.unwrap()).unwrap();
-                verify_proposal_account = Some(proposal_puk);
-            }
-
             let rule = string_to_rule_array(rule_str)?;
 
+            let (authority, authority_key) = config.signer_or_default(arg_matches, "authority_keypair", &mut wallet_manager);
             let (sender_signer, payer) = config.signer_or_default(arg_matches, "owner", &mut wallet_manager);
 
             bulk_signers.push(sender_signer);
-
-
+            bulk_signers.push(authority);
             command_create_top_domain(
                 &config,
                 domain_name,
                 rule,
                 max_space,
                 payer,
-                verify_proposal_account,
+                authority_key,
                 bulk_signers
             )
         }
@@ -1559,14 +1520,6 @@ fn main() -> Result<(), Error> {
         ("create-rare-domain", Some(arg_matches)) => {
             let domain_name = value_t_or_exit!(arg_matches, "name", String);
             let owner_str = value_t_or_exit!(arg_matches, "owner", String);
-            let proposal_str = value_t!(arg_matches, "proposal", String);
-
-            let mut verify_proposal_account = None;
-            if proposal_str.is_ok() {
-                let proposal_puk = Pubkey::from_str(&proposal_str.unwrap()).unwrap();
-                verify_proposal_account = Some(proposal_puk);
-            }
-
             let owner = Pubkey::from_str(owner_str.as_str()).unwrap();
             let (sender_signer, payer) = config.signer_or_default(arg_matches, "payer", &mut wallet_manager);
 
@@ -1578,7 +1531,6 @@ fn main() -> Result<(), Error> {
                 domain_name,
                 payer,
                 owner,
-                verify_proposal_account,
                 bulk_signers,
             )
         }
@@ -1812,16 +1764,23 @@ fn handle_tx(
         )))
     } else {
         transaction.try_sign(&signers, recent_blockhash)?;
-        let signature = if no_wait {
-            config.rpc_client.send_transaction(&transaction)?
-        } else {
-            config
-                .rpc_client
-                .send_and_confirm_transaction_with_spinner(&transaction)?
-        };
-        Ok(TransactionReturnData::CliSignature(CliSignature {
-            signature: signature.to_string(),
-        }))
+
+        if config.debug {
+            let msg = config.rpc_client.simulate_transaction(&transaction)?;
+            println!("{:?}",msg);
+            exit(1);
+        }else{
+            let signature = if no_wait {
+                config.rpc_client.send_transaction(&transaction)?
+            } else {
+                config
+                    .rpc_client
+                    .send_and_confirm_transaction_with_spinner(&transaction)?
+            };
+            Ok(TransactionReturnData::CliSignature(CliSignature {
+                signature: signature.to_string(),
+            }))
+        } 
     }
 }
 

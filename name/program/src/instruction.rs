@@ -3,8 +3,7 @@ use huione_program::instruction::{AccountMeta, Instruction};
 use huione_program::program_error::ProgramError;
 use huione_program::pubkey::Pubkey;
 use huione_program::{system_program, sysvar};
-use hpl_sig::utils::find_proposal_account;
-use crate::{check_program_account, multi_sig_account_inline, oracle_program, usdt_token_account};
+use crate::{check_program_account};
 
 /// Instructions supported by the token program.
 // #[repr(C)]
@@ -17,8 +16,9 @@ pub enum NameInstruction {
     ///
     ///   1. `[]` the domain account
     ///   2. `[]` the payer account
-    ///   3. '[]' the system account
-    ///   4. '[]' the rent account
+    ///   3. `[]` the top manager account
+    ///   4. '[]' the system account
+    ///   5. '[]' the rent account
     ///
     CreateTopDomain{
         /// The domain name. for example .huione
@@ -248,9 +248,9 @@ pub fn create_top_domain(
     domain_name: String,
     rule: [u128; 5],
     max_space: u16,
-    proposal_account_puk: Pubkey,
     domain_account: Pubkey,
     payer_account: Pubkey,
+    mgr_account: Pubkey,
 ) -> Result<Instruction, ProgramError> {
     check_program_account(&name_program_id)?;
 
@@ -260,9 +260,7 @@ pub fn create_top_domain(
     let accounts = vec![
         AccountMeta::new(domain_account, false),
         AccountMeta::new(payer_account, true),
-        AccountMeta::new_readonly(multi_sig_account_inline::id(), false),
-        AccountMeta::new(proposal_account_puk, false),
-        AccountMeta::new_readonly(hpl_sig::id(), false),
+        AccountMeta::new(mgr_account, true),
         AccountMeta::new_readonly(huione_program::system_program::id(), false),
         AccountMeta::new_readonly(sysvar::rent::id(), false),
     ];
@@ -287,15 +285,11 @@ pub fn create_domain(
     let cd_ins = NameInstruction::CreateDomain{domain_name};
     let ins_data = cd_ins.serialize();
 
-    let oracle_seeds = &["price".as_bytes(), &system_program::id().to_bytes(), &usdt_token_account::id().to_bytes()];
-    let (oracle_account_puk, _) = Pubkey::find_program_address(oracle_seeds, &oracle_program::id());
-    println!("oracle address {}", oracle_account_puk);
     let accounts = vec![
         AccountMeta::new(domain_account, false),
         AccountMeta::new(owner_account, true),
         AccountMeta::new(parent_account, false),
         AccountMeta::new(payer_account, true),
-        AccountMeta::new_readonly(oracle_account_puk, false),
         AccountMeta::new_readonly(huione_program::system_program::id(), false),
         AccountMeta::new_readonly(sysvar::rent::id(), false),
     ];
@@ -310,7 +304,6 @@ pub fn create_domain(
 pub fn create_rare_domain(
     name_program_id: Pubkey,
     domain_name: String,
-    proposal_account_puk: Pubkey,
     domain_account: Pubkey,
     owner_account: Pubkey,
     parent_account: Pubkey,
@@ -326,9 +319,6 @@ pub fn create_rare_domain(
         AccountMeta::new(owner_account, false),
         AccountMeta::new(parent_account, false),
         AccountMeta::new(payer_account, true),
-        AccountMeta::new_readonly(multi_sig_account_inline::id(), false),
-        AccountMeta::new(proposal_account_puk, false),
-        AccountMeta::new_readonly(hpl_sig::id(), false),
         AccountMeta::new_readonly(huione_program::system_program::id(), false),
         AccountMeta::new_readonly(sysvar::rent::id(), false),
     ];
@@ -499,14 +489,10 @@ pub fn create_renewal(
     let renewal_ins = NameInstruction::Renewal;
     let ins_data = renewal_ins.serialize();
 
-    let oracle_seeds = &["price".as_bytes(), &system_program::id().to_bytes(), &usdt_token_account::id().to_bytes()];
-    let (oracle_account_puk, _) = Pubkey::find_program_address(oracle_seeds, &oracle_program::id());
-
     let accounts = vec![
         AccountMeta::new(domain_account, false),
         AccountMeta::new(parent_account, false),
         AccountMeta::new(payer_account, true),
-        AccountMeta::new_readonly(oracle_account_puk, false),
         AccountMeta::new_readonly(huione_program::system_program::id(), false),
     ];
     Ok(Instruction {
@@ -522,22 +508,15 @@ pub fn set_top_receipt(
     top_domain_account: Pubkey,
     receipt: Pubkey,
     payer_account: Pubkey,
-    nonce: u64
 ) -> Result<Instruction, ProgramError> {
     check_program_account(&name_program_id)?;
 
     let renewal_ins = NameInstruction::SetTopReceipt { new_receipt_account: receipt.clone() };
     let ins_data = renewal_ins.serialize();
 
-    let (proposal_account_puk, _) = find_proposal_account(&payer_account, nonce);
-    println!("creating hpl-sig proposal account {}", proposal_account_puk);
-
     let accounts = vec![
         AccountMeta::new(top_domain_account, false),
         AccountMeta::new(payer_account, true),
-        AccountMeta::new_readonly(multi_sig_account_inline::id(), false),
-        AccountMeta::new(proposal_account_puk, false),
-        AccountMeta::new_readonly(hpl_sig::id(), false),
         AccountMeta::new_readonly(huione_program::system_program::id(), false),
         AccountMeta::new_readonly(sysvar::rent::id(), false),
     ];

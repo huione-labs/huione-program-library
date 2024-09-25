@@ -2,7 +2,7 @@
 authors = ["huione Maintainers <maintainers@huione.com>"]
 description = "HPL-Nft Command-line Utility"
 edition = "2018"
-homepage = "https://hpl.huione.com/token"
+homepage = "https://docs.huione.org/library/nft-program/"
 license = "Apache-2.0"
 name = "hpl-nft-cli"
 repository = "https://github.com/huione-labs/huione-program-library"

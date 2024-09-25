@@ -64,7 +64,11 @@ pub enum TokenError {
 
     /// Thaw a unfrozen nft
     #[error("Thaw a unfrozen nft")]
-    ThawUnfrozen
+    ThawUnfrozen,
+
+    /// Thaw a unfrozen nft
+    #[error("No required parameters provided")]
+    NoProvided
 }
 
 impl From<TokenError> for ProgramError {

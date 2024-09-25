@@ -1748,7 +1748,6 @@ name = "hpl-name"
 version = "1.0.0"
 dependencies = [
  "borsh 0.10.3",
- "hpl-sig",
  "huione-program",
  "huione-sdk",
  "lazy_static",
@@ -1766,7 +1765,6 @@ dependencies = [
  "clap 2.34.0",
  "console 0.14.1",
  "hpl-name",
- "hpl-sig",
  "huione-account-decoder",
  "huione-clap-utils",
  "huione-cli-config",

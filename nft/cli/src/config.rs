@@ -1,13 +1,12 @@
 use clap::ArgMatches;
 use huione_clap_utils::{
-    input_parsers::pubkey_of_signer,
-    keypair::{pubkey_from_path, signer_from_path_with_config, SignerFromPathConfig},
+    input_parsers::pubkey_of_signer, input_validators::is_valid_pubkey, keypair::{pubkey_from_path, signer_from_path_with_config, SignerFromPathConfig}
 };
 use huione_cli_output::OutputFormat;
 use huione_client::{blockhash_query::BlockhashQuery, rpc_client::RpcClient};
 use huione_remote_wallet::remote_wallet::RemoteWalletManager;
 use huione_sdk::{pubkey::Pubkey, signature::Signer};
-use std::{process::exit, sync::Arc};
+use std::{fmt::Display, process::exit, sync::Arc};
 
 pub(crate) struct Config<'a> {
     pub(crate) rpc_client: Arc<RpcClient>,
@@ -19,6 +18,7 @@ pub(crate) struct Config<'a> {
     pub(crate) nonce_authority: Option<Pubkey>,
     pub(crate) blockhash_query: BlockhashQuery,
     pub(crate) sign_only: bool,
+    pub(crate) debug: bool,
     pub(crate) dump_transaction_message: bool,
     pub(crate) multisigner_pubkeys: Vec<&'a Pubkey>,
     pub(crate) program_id: Pubkey,
@@ -120,5 +120,18 @@ impl<'a> Config<'a> {
 
         let path = &self.default_keypair_path;
         signer_from_path_with_config(matches, path, "default", wallet_manager, config)
+    }
+}
+
+
+pub fn is_valid_pubkey_or_None<T>(str: T) -> Result<(), String>
+where
+    T: AsRef<str> + Display,
+{
+    if  str.as_ref() == "NONE" 
+    {
+        Ok(())
+    } else {
+        is_valid_pubkey(str.as_ref())
     }
 }

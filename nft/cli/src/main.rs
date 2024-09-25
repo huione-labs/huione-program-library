@@ -54,7 +54,7 @@ use std::{
 };
 
 mod config;
-use config::Config;
+use config::{is_valid_pubkey_or_None, Config};
 
 mod output;
 use output::*;
@@ -64,7 +64,7 @@ use sort::sort_and_parse_token_accounts;
 
 use hpl_nft::instruction::{
     create_authorize_instruction, create_burn_instruction, create_freeze_instruction,
-    create_mint_to_inst, create_thaw_instruction, create_transfer_inst, initialize_mint,
+    create_mint_to_inst, create_thaw_instruction, create_transfer_inst, initialize_collection,
     update_instruction, AuthorityType, MintNftArgs, UpdateType,
 };
 // use hpl_nft::huione_program::program_pack::Pack;
@@ -106,7 +106,7 @@ pub const MULTISIG_SIGNER_ARG: ArgConstant<'static> = ArgConstant {
     help: "Member signer of a multisig account",
 };
 
-pub const CREATE_TOKEN: &str = "create-token";
+pub const CREATE_TOKEN: &str = "create-nft-collection";
 
 pub fn owner_address_arg<'a, 'b>() -> Arg<'a, 'b> {
     Arg::with_name(OWNER_ADDRESS_ARG.name)
@@ -278,7 +278,7 @@ fn command_create_token(
     icon_uri: String,
     bulk_signers: Vec<Box<dyn Signer>>,
 ) -> CommandResult {
-    println_display(config, format!("Creating token {}", token));
+    println_display(config, format!("Creating nft collection {}", token));
 
     let minimum_balance_for_rent_exemption = 0;
     let freeze_authority_pubkey = if enable_freeze { Some(authority) } else { None };
@@ -292,7 +292,7 @@ fn command_create_token(
             0,
             &system_program::id(),
         ),
-        initialize_mint(
+        initialize_collection(
             config.program_id,
             token,
             config.fee_payer,
@@ -652,11 +652,12 @@ fn command_update(
     config: &Config,
     update_type: UpdateType,
     address_pubkey: Pubkey,
+    owner: Pubkey,
     bulk_signers: Vec<Box<dyn Signer>>,
 ) -> CommandResult {
     let instructions = vec![update_instruction(
         address_pubkey,
-        config.fee_payer,
+        owner,
         update_type.clone(),
         config.program_id,
     )?];
@@ -848,7 +849,14 @@ fn main() -> Result<(), Error> {
                 .help("Use unchecked instruction if appropriate. Supports transfer, burn, mint, and approve."),
         )
         // .bench_subcommand()
-        .subcommand(SubCommand::with_name(CREATE_TOKEN).about("Create a new token")
+        .arg(
+            Arg::with_name("debug")
+                .long("debug")
+                .takes_value(false)
+                .global(true)
+                .help("debug model"),
+        )
+        .subcommand(SubCommand::with_name(CREATE_TOKEN).about("Create a nft collection.")
                 .arg(
                     Arg::with_name("token_keypair")
                         .value_name("TOKEN_KEYPAIR")
@@ -891,57 +899,58 @@ fn main() -> Result<(), Error> {
                         ),
                 )
                 .arg(
-                    Arg::with_name("nft_name")
-                        .long("nft-name")
+                    Arg::with_name("nft_collection_name")
+                        .long("nft-collection-name")
                         .takes_value(true)
-                        .help("the name of nft")
+                        .help("the name of nft collection. [max 32 bytes]")
                 )
                 .arg(
-                    Arg::with_name("nft_symbol")
-                        .long("nft-symbol")
+                    Arg::with_name("nft_collection_symbol")
+                        .long("nft-collection-symbol")
                         .takes_value(true)
-                        .help("the symbol of nft")
+                        .help("the symbol of nft collection. [max 8 bytes]")
                 )
                 .arg(
-                    Arg::with_name("icon_uri")
-                        .long("icon-uri")
+                    Arg::with_name("collection_icon_uri")
+                        .long("collection-icon-uri")
                         .takes_value(true)
-                        .help("the icon uri of nft")
+                        .help("the icon uri of nft collection. [max 200 bytes]")
                 )
                 .nonce_args(true)
                 .arg(memo_arg())
                 .offline_args(),
         )
         .subcommand(SubCommand::with_name("update")
-                        .about("Update the nft account or nft mint account info. Check detail with -h.")
-                        .arg(
-                            Arg::with_name("address")
-                                .value_name("address")
-                                .takes_value(true)
-                                .required(true)
-                                .help("The address that uri will be update"),
-                        )
-                        .arg(
-                            Arg::with_name("value")
-                                .value_name("value")
-                                .long("value")
-                                .takes_value(true)
-                                .required(true)
-                                .help("The new value of update"),
-                        )
-                        .arg(
-                            Arg::with_name("type")
-                                .long("type")
-                                // .validator(is_mint_supply)
-                                .value_name("type")
-                                .takes_value(true)
-                                .required(true)
-                                .help("The update type. Token mints support `icon` type;Token \
-                                            accounts support `asset` type. [possible values: icon, asset]"),
-                        )
+                .about("Update the nft account or nft mint account info. Check detail with -h.")
+                .arg(
+                    Arg::with_name("address")
+                        .value_name("address")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The address that uri will be update"),
+                )
+                .arg(
+                    Arg::with_name("value")
+                        .value_name("value")
+                        .long("value")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The new value of update"),
+                )
+                .arg(
+                    Arg::with_name("type")
+                        .long("type")
+                        // .validator(is_mint_supply)
+                        .value_name("type")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The update type. Token mints support `icon` type;Token \
+                                    accounts support `asset` type. [possible values: icon, asset]"),
+                )
+                .arg(owner_keypair_arg())
         )
         .subcommand(
-            SubCommand::with_name("mint")
+            SubCommand::with_name("mint-nft")
                 .about("mint a nft to a new account")
                 .arg(
                     Arg::with_name("nft_collection")
@@ -958,7 +967,7 @@ fn main() -> Result<(), Error> {
                         .value_name("nft-uri")
                         .takes_value(true)
                         .help(
-                            "the uri of the nft"
+                            "the uri of the nft.[max 200 bytes]"
                         ),
                 )
                 .arg(
@@ -1058,15 +1067,15 @@ fn main() -> Result<(), Error> {
                 .offline_args(),
         )
         .subcommand(
-            SubCommand::with_name("mint-info")
-                .about("query info of mint")
+            SubCommand::with_name("collection-info")
+                .about("query info of nft collection.")
                 .arg(
                     Arg::with_name("address")
                         .validator(is_valid_pubkey)
                         .value_name("address")
                         .takes_value(true)
                         .required(true)
-                        .help("the address of mint"),
+                        .help("the address of nft collection."),
                 )
                 .arg(owner_address_arg())
                 .nonce_args(true)
@@ -1082,83 +1091,6 @@ fn main() -> Result<(), Error> {
                         .takes_value(true)
                         .required(true)
                         .help("the address of mint of special NFT"),
-                )
-                .arg(owner_address_arg())
-                .nonce_args(true)
-                .offline_args(),
-        )
-        .subcommand(
-            SubCommand::with_name("mint-nfts")
-                .about("query nfts of mint has been minted")
-                .arg(
-                    Arg::with_name("address")
-                        .validator(is_valid_pubkey)
-                        .value_name("address")
-                        .takes_value(true)
-                        .required(true)
-                        .help("the address of mint"),
-                )
-                .arg(owner_address_arg())
-                .nonce_args(true)
-                .offline_args(),
-        )
-        .subcommand(
-            SubCommand::with_name("nft-index-info")
-                .about("query nft info by token id")
-                .arg(
-                    Arg::with_name("mint")
-                        .long("mint")
-                        .validator(is_valid_pubkey)
-                        .value_name("mint")
-                        .takes_value(true)
-                        .required(true)
-                        .help("the address of mint"),
-                )
-                .arg(
-                    Arg::with_name("token-id")
-                        .long("token-id")
-                        .validator(is_mint_supply)
-                        .value_name("token-id")
-                        .takes_value(true)
-                        .required(true)
-                        .help("the token id of nft"),
-                )
-                .arg(owner_address_arg())
-                .nonce_args(true)
-                .offline_args(),
-        )
-        .subcommand(
-            SubCommand::with_name("multi-mint")
-                .about("mint multi nft with same owner.")
-                .arg(
-                    Arg::with_name("address")
-                        .long("address")
-                        .validator(is_valid_pubkey)
-                        .value_name("address")
-                        .takes_value(true)
-                        .required(true)
-                        .help("the address of mint"),
-                )
-                .arg(
-                    Arg::with_name("nfts")
-                        .long("nfts")
-                        // .validator(is_mint_supply)
-                        .value_name("nfts")
-                        .takes_value(true)
-                        .required(true)
-                        .help("the file of nfts uri"),
-                )
-                .arg(
-                    Arg::with_name("owner_keypair")
-                        .value_name("owner-keypair")
-                        .long("owner-keypair")
-                        .validator(is_valid_signer)
-                        .takes_value(true)
-                        .help(
-                            "Specify the account keypair. \
-                             This may be a keypair file or the ASK keyword. \
-                             [default: associated token account for --owner]"
-                        ),
                 )
                 .arg(owner_address_arg())
                 .nonce_args(true)
@@ -1246,10 +1178,10 @@ fn main() -> Result<(), Error> {
             SubCommand::with_name("authorize")
                 .about("Authorize a new signing keypair to a token or token account.")
                 .arg(
-                    Arg::with_name("auth-keypair")
-                        .long("auth-keypair")
-                        .validator(is_valid_signer)
-                        .value_name("auth-keypair")
+                    Arg::with_name("new-auth-key")
+                        .long("new-auth-key")
+                        .validator(is_valid_pubkey_or_None)
+                        .value_name("new-auth-key")
                         .takes_value(true)
                         .help(" The address of the new authority"),
                 )
@@ -1260,7 +1192,7 @@ fn main() -> Result<(), Error> {
                         .value_name("address")
                         .takes_value(true)
                         .required(true)
-                        .help("the address of a nft account or mint account."),
+                        .help("the address of a NFT account or NFT Collection account."),
                 )
                 .arg(
                     Arg::with_name("type")
@@ -1374,6 +1306,7 @@ fn main() -> Result<(), Error> {
 
         let blockhash_query = BlockhashQuery::new_from_matches(matches);
         let sign_only = matches.is_present(SIGN_ONLY_ARG.name);
+        let debug = matches.is_present("debug");
         let dump_transaction_message = matches.is_present(DUMP_TRANSACTION_MESSAGE.name);
         let program_id = pubkey_of(matches, "program_id").unwrap();
 
@@ -1403,6 +1336,7 @@ fn main() -> Result<(), Error> {
             nonce_authority,
             blockhash_query,
             sign_only,
+            debug,
             dump_transaction_message,
             multisigner_pubkeys,
             program_id,
@@ -1420,9 +1354,9 @@ fn main() -> Result<(), Error> {
         // ),
         (CREATE_TOKEN, Some(arg_matches)) => {
             let total_supply = value_t_or_exit!(arg_matches, "total_supply", u64);
-            let name = value_t_or_exit!(arg_matches, "nft_name", String);
-            let symbol = value_t_or_exit!(arg_matches, "nft_symbol", String);
-            let icon_uri = value_t_or_exit!(arg_matches, "icon_uri", String);
+            let name = value_t_or_exit!(arg_matches, "nft_collection_name", String);
+            let symbol = value_t_or_exit!(arg_matches, "nft_collection_symbol", String);
+            let icon_uri = value_t_or_exit!(arg_matches, "collection_icon_uri", String);
             let mint_authority =
                 config.pubkey_or_default(arg_matches, "mint_authority", &mut wallet_manager);
             let memo = value_t!(arg_matches, "memo", String).ok();
@@ -1459,13 +1393,13 @@ fn main() -> Result<(), Error> {
                 _ => return Err(Error::try_from("invalid update type.").unwrap()),
             }
 
-            let (token_signer, _sender) =
-                config.signer_or_default(arg_matches, "_none", &mut wallet_manager);
-            bulk_signers.push(token_signer);
+            let (owner_signer, owner) =
+                config.signer_or_default(arg_matches, "owner", &mut wallet_manager);
+            bulk_signers.push(owner_signer);
 
-            command_update(&config, update_type, address_pubkey, bulk_signers)
+            command_update(&config, update_type, address_pubkey, owner,bulk_signers)
         }
-        ("mint", Some(arg_matches)) => {
+        ("mint-nft", Some(arg_matches)) => {
             // let nft_collection_str = value_t_or_exit!(arg_matches, "nft_collection", String);
             // let nft_collection = Pubkey::from_str(nft_collection_str.as_str()).unwrap();
 
@@ -1545,7 +1479,7 @@ fn main() -> Result<(), Error> {
 
             command_transfer(&config, sender, recipient_pubkey, nft_pubkey, bulk_signers)
         }
-        ("mint-info", Some(arg_matches)) => {
+        ("collection-info", Some(arg_matches)) => {
             let mint_address = value_t_or_exit!(arg_matches, "address", String);
             let mint_pubkey = Pubkey::from_str(mint_address.as_str()).unwrap();
 
@@ -1600,131 +1534,6 @@ fn main() -> Result<(), Error> {
                 account: ui_nft_info,
             };
             Ok(config.outhuione_format.formatted_string(&cli_display_nft_info))
-        }
-        // ("mint-nfts", Some(arg_matches)) => {
-        //     let mint_address = value_t_or_exit!(arg_matches, "address", String);
-        //     let mint_pubkey = Pubkey::from_str(mint_address.as_str()).unwrap();
-
-        //     let mint_account = config.rpc_client.get_account(&mint_pubkey)?;
-        //     let mint = NftMint::unpack(mint_account.data()).expect(&*format!(
-        //         "Could not find NFT mint account {}",
-        //         mint_address
-        //     ));
-
-        //     let mut nft_list: Vec<String> = Vec::new();
-
-        //     // Find minted nfts
-        //     for i in 1..=mint.supply {
-        //         let index = i.to_le_bytes();
-        //         let signer_seeds = &[
-        //             index.as_slice(),
-        //             config.program_id.as_ref(),
-        //             mint_pubkey.as_ref(),
-        //         ];
-        //         let (nft_token, _) = Pubkey::find_program_address(signer_seeds, &config.program_id);
-        //         nft_list.push(nft_token.to_string())
-        //     }
-        //     if nft_list.is_empty() {
-        //         println!("{} have not minted nft ", mint_address);
-        //         return Ok(());
-        //     }
-        //     println!("-------------------- nft list --------------------");
-        //     for nft in nft_list {
-        //         println!("{}", nft);
-        //     }
-        //     Ok("".to_string())
-        // }
-        // ("nft-index-info", Some(arg_matches)) => {
-        //     let mint_address = value_t_or_exit!(arg_matches, "mint", String);
-        //     let token_id = value_t_or_exit!(arg_matches, "token-id", u64);
-        //     let mint_pubkey = Pubkey::from_str(mint_address.as_str()).unwrap();
-
-        //     let _ = config.rpc_client.get_account(&mint_pubkey)?;
-
-        //     let (nft_token, _) = find_nft_pubkey(token_id, config.program_id, mint_pubkey);
-
-        //     let nft_account = config.rpc_client.get_account(&nft_token).expect(format!("token id {} have not mint", token_id).as_str());
-        //     let meta = MetaAccount::unpack(nft_account.data()).expect(&*format!("Could not find NFT account by token {}", nft_token));
-
-        //     let mint_account = config.rpc_client.get_account(&meta.mint)?;
-        //     let mint_account_obj = NftMint::unpack(mint_account.data()).expect(&*format!("Could not find NFT account {}", nft_token));
-
-        //     println!();
-        //     println!("Mint {} at index {}'s Nft is: \t  {} ", mint_address, token_id, nft_token);
-
-        //     println!("The nft {} owner is: \t  {}", nft_token, meta.owner);
-        //     let ui_nft_info = UiNftInfo {
-        //         mint: meta.mint,
-        //         owner: meta.owner,
-        //         state: meta.state.to_string(),
-        //         close_authority: meta.close_authority,
-        //         token_id: meta.token_id,
-        //         token_uri: meta.token_uri,
-        //         name: mint_account_obj.name,
-        //         symbol: mint_account_obj.symbol
-        //     };
-        //     let cli_display_nft_info = CliDisplayNftInfo {
-        //         address: nft_token.to_string(),
-        //         account: ui_nft_info,
-        //     };
-        //     Ok(config.outhuione_format.formatted_string(&cli_display_nft_info))
-        // }
-        ("multi-mint", Some(arg_matches)) => {
-            let mint_address = value_t_or_exit!(arg_matches, "address", String);
-            let path = value_t_or_exit!(arg_matches, "nfts", String);
-
-            // read urls list
-            let mut uri_list: Vec<String> = Vec::new();
-            let file = File::open(path).unwrap();
-            let line = io::BufReader::new(file).lines();
-
-            for line in line {
-                if let Ok(uri) = line {
-                    uri_list.push(uri);
-                }
-            }
-            // Get current mint
-            let mint_pubkey = Pubkey::from_str(mint_address.as_str()).unwrap();
-
-            let mint_account = config.rpc_client.get_account(&mint_pubkey)?;
-            let mint = NftMint::unpack(mint_account.data()).expect(&*format!(
-                "Could not find NFT mint account {}",
-                mint_address
-            ));
-            if mint.total_supply - mint.supply < uri_list.len() as u64 {
-                return Err(
-                    Error::try_from("the nft wish to mint greater than max supply").unwrap(),
-                );
-            }
-
-            let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-
-            // Start to mint
-            for i in 1..=uri_list.len() {
-                // Signer not implement clone trait, bulk_signers cannot repeat use,
-                // So built new bulk_signers for one cycle
-                let mut bulk_signers: Vec<Box<dyn Signer>> = Vec::new();
-                let (owner_signer, owner) =
-                    config.signer_or_default(arg_matches, "owner_keypair", &mut wallet_manager);
-                bulk_signers.push(owner_signer);
-
-                let (nft_token, _) =
-                    find_nft_pubkey(time.as_secs() + i as u64, config.program_id, mint_pubkey);
-
-                let uri = uri_list.get(i - 1).unwrap().deref();
-                // let owner = config.pubkey_or_default(arg_matches, "owner", &mut wallet_manager);
-                // TODO
-                // command_mint(
-                //     &config,
-                //     mint_pubkey,
-                //     nft_token,
-                //     owner,
-                //     uri.to_string(),
-                //     bulk_signers,
-                // )?;
-                println!("\tminted nft {}", nft_token);
-            }
-            Ok("".to_string())
         }
         ("freeze", Some(arg_matches)) => {
             let nft_address = value_t_or_exit!(arg_matches, "address", String);
@@ -1787,7 +1596,10 @@ fn main() -> Result<(), Error> {
         }
         ("authorize", Some(arg_matches)) => {
             let address = value_t_or_exit!(arg_matches, "address", String);
-            let auth_path = value_t!(arg_matches, "auth-keypair", String);
+            let new_authority = match matches.value_of("new-auth-key").unwrap() {
+                "NONE" => None,
+                puk => Some(puk.parse::<Pubkey>().unwrap()),
+            };
             let auth_type = value_t_or_exit!(arg_matches, "type", String);
             // Change authority type
             let authority_type: AuthorityType;
@@ -1804,15 +1616,6 @@ fn main() -> Result<(), Error> {
                 _ => return Err(Error::try_from("invalid authority type.").unwrap()),
             }
             // Read new authority signer
-            let mut new_authority = None;
-            if auth_path.is_ok() {
-                let (sender_signer, sender) =
-                    config.signer_or_default(arg_matches, "auth-keypair", &mut wallet_manager);
-                bulk_signers.push(sender_signer);
-                println!("sender {}", sender.to_string());
-                new_authority = Some(sender);
-            }
-
             // Read old owner
             let (sender_signer, sender) =
                 config.signer_or_default(arg_matches, "owner", &mut wallet_manager);
@@ -1912,16 +1715,24 @@ fn handle_tx(
             },
         )))
     } else {
+
         transaction.try_sign(&signers, recent_blockhash)?;
-        let signature = if no_wait {
-            config.rpc_client.send_transaction(&transaction)?
-        } else {
-            config
-                .rpc_client
-                .send_and_confirm_transaction_with_spinner(&transaction)?
-        };
-        Ok(TransactionReturnData::CliSignature(CliSignature {
-            signature: signature.to_string(),
-        }))
+
+        if config.debug {
+            let msg = config.rpc_client.simulate_transaction(&transaction)?;
+            println!("{:?}",msg);
+            exit(1);
+        }else{
+            let signature = if no_wait {
+                config.rpc_client.send_transaction(&transaction)?
+            } else {
+                config
+                    .rpc_client
+                    .send_and_confirm_transaction_with_spinner(&transaction)?
+            };
+            Ok(TransactionReturnData::CliSignature(CliSignature {
+                signature: signature.to_string(),
+            }))
+        } 
     }
 }

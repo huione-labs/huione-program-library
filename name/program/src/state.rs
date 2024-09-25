@@ -8,8 +8,6 @@ pub const GRACE_PERIOD_FEE: u128 = 100;
 /// Expire period
 // pub const EXPIRE_PERIOD: i64 = 365 * 24 * 60 * 60;
 pub const EXPIRE_PERIOD: i64 = 10 * 60;
-/// Multi-sig interface proposal validity period.
-pub const PROPOSAL_EFFECT_PERIOD: u32 = 1 * 24 * 60 * 60;
 
 
 

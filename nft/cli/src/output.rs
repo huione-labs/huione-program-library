@@ -713,7 +713,7 @@ impl fmt::Display for CliNftAccounts {
         }
         if gc_alert {
             writeln!(f)?;
-            writeln!(f, "* Please run `spl-token gc` to clean up Aux accounts")?;
+            writeln!(f, "* Please run `hpl-token gc` to clean up Aux accounts")?;
         }
         Ok(())
     }

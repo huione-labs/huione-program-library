@@ -7,11 +7,6 @@ use huione_program::program_error::ProgramError;
 use huione_program::{pubkey::Pubkey, sysvar};
 use shank::ShankInstruction;
 
-/// Minimum number of multisignature signers (min N)
-pub const MIN_SIGNERS: usize = 1;
-/// Maximum number of multisignature signers (max N)
-pub const MAX_SIGNERS: usize = 11;
-
 /// Instructions supported by the token program.
 // #[repr(C)]
 #[derive(Clone, Debug, PartialEq, BorshSerialize, BorshDeserialize, ShankInstruction)]
@@ -206,7 +201,7 @@ pub struct InitializeMintArgs {
 }
 
 /// Creates a `InitializeMint` instruction.
-pub fn initialize_mint(
+pub fn initialize_collection(
     token_program_id: Pubkey,
     mint_pubkey: Pubkey,
     mint_authority_pubkey: Pubkey,

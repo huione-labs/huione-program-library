@@ -25,7 +25,6 @@ huione-client =  { path = "../../../huione/client", version = "1.1.0" }
 huione-logger =  { path = "../../../huione/logger", version = "1.1.0" }
 huione-sdk = { path = "../../../huione/sdk", version = "1.1.0" }
 hpl-name= { version = "1.0.0", path="../program", features = [ "no-entrypoint" ] }
-hpl-sig =  { path = "../../multi-sig/program", version = "=1.0.0" , features = [ "no-entrypoint" ]}
 lazy_static = "1.4.0"
 regex = "1.6.0"
 borsh = "0.10.3"

@@ -39,7 +39,11 @@ pub enum NameError {
 
     /// Invalid value length.
     #[error("Invalid value length.")]
-    InvalidValueLen
+    InvalidValueLen,
+
+    /// Insufficient permissions for operation.
+    #[error("Insufficient permissions for operation.")]
+    InsufficientPermissions
 
 }
 impl From<NameError> for ProgramError {

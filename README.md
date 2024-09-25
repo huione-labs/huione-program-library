@@ -14,14 +14,14 @@ huione-runtime, and deployed to its mainnet.  As others implement Sealevel, we
 will graciously accept patches to ensure the programs here are portable across
 all implementations.
 
-Full documentation is available at https://spl.huione.com
+Full documentation is available at https://docs.huione.org
 
 ## Development
 
 ### Environment Setup
 
 1. Install the latest Rust stable from https://rustup.rs/
-2. Install HUIONE v1.6.1 or later from https://docs.huione.com/cli/install-huione-cli-tools
+2. Install HUIONE v1.1.1 or later from https://docs.huione.org
 3. Install the `libudev` development package for your distribution (`libudev-dev` on Debian-derived distros, `libudev-devel` on Redhat-derived).
 
 ### Build
